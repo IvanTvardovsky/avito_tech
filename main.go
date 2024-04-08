@@ -29,6 +29,8 @@ func updateInfoOnServer(matrix *map[int]map[int]int, bannerMap *map[int]*structu
 		}
 	}(rows)
 
+	bannerFlag := make(map[int]bool) // to resolve the append problem in for
+
 	for rows.Next() {
 		var tagID, featureID, bannerID int
 		var contentJSON string
@@ -46,6 +48,10 @@ func updateInfoOnServer(matrix *map[int]map[int]int, bannerMap *map[int]*structu
 
 		if _, ok := (*bannerMap)[bannerID]; !ok {
 			(*bannerMap)[bannerID] = &structures.Banner{}
+			bannerFlag[bannerID] = true
+		} else if !bannerFlag[bannerID] {
+			(*bannerMap)[bannerID].TagIDs = nil
+			bannerFlag[bannerID] = true
 		}
 
 		(*bannerMap)[bannerID].ID = bannerID
@@ -67,10 +73,6 @@ func updateInfoOnServer(matrix *map[int]map[int]int, bannerMap *map[int]*structu
 	}
 
 	return nil
-}
-
-func hi(c *gin.Context) {
-	c.Writer.Write([]byte("Hi"))
 }
 
 func printMatrixAndBanners(matrix map[int]map[int]int, bannerMap map[int]*structures.Banner) {
@@ -123,15 +125,23 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	gin.DefaultWriter = io.Discard
 
-	router.GET("/", hi)
-	router.GET("/user_banner")                                                 // 200 400 401 403 404 500
-	router.GET("/banner", middleware.AuthMiddleware(), handlers.GetAllBanners) // 200 401 403 500
-	router.POST("/banner", middleware.AuthMiddleware(), func(c *gin.Context) {
-		handlers.CreateBanner(c, db)
+	router.Use(middleware.TokenTypeMiddleware())
 
+	router.GET("/user_banner", func(c *gin.Context) {
+		handlers.GetUserBanner(c, db, &matrix, &bannerMap)
+	}) // 200 400 401 403 404 500
+	router.GET("/banner", middleware.AuthAdminMiddleware(), func(c *gin.Context) {
+		handlers.GetAllBanners(c, &matrix, &bannerMap)
+	}) // 200 401 403 500
+	router.POST("/banner", middleware.AuthAdminMiddleware(), func(c *gin.Context) {
+		handlers.CreateBanner(c, db)
 	}) // 201 400 401 403 500
-	router.PATCH("/banner/{id}")  // 200 400 401 403 404 500
-	router.DELETE("/banner/{id}") // 204 400 401 403 404 500
+	router.PATCH("/banner/:id", middleware.AuthAdminMiddleware(), func(c *gin.Context) {
+		handlers.PatchBanner(c, db)
+	}) // 200 400 401 403 404 500
+	router.DELETE("/banner/:id", middleware.AuthAdminMiddleware(), func(c *gin.Context) {
+		handlers.DeleteBanner(c, db)
+	}) // 204 400 401 403 404 500
 
 	logger.Log.Infoln("Serving handlers...")
 	logger.Log.Info("Starting router...")

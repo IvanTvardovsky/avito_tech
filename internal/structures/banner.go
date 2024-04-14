@@ -11,8 +11,9 @@ type Banner struct {
 }
 
 type RequestBanner struct {
-	FeatureID int `json:"feature_id"`
-	TagID     int `json:"tag_id"`
-	Limit     int `json:"limit"`
-	Offset    int `json:"offset"`
+	FeatureID       int  `json:"feature_id"`
+	TagID           int  `json:"tag_id"`
+	Limit           int  `json:"limit"`
+	Offset          int  `json:"offset"`
+	UseLastRevision bool `json:"use_last_revision"`
 }

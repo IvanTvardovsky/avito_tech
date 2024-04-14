@@ -16,7 +16,7 @@ import (
 
 var BannerCounter = atomic.Int64{}
 
-func GetUserBanner(c *gin.Context, db *sql.DB, matrix *map[int]map[int]int, bannerMap *map[int]*structures.Banner) {
+func GetUserBanner(c *gin.Context, db *sql.DB, cfg *structures.Config, matrix *map[int]map[int]int, bannerMap *map[int]*structures.Banner) {
 	var tagInt, featureInt int
 	var useLastRevision bool
 	var err error
@@ -50,9 +50,14 @@ func GetUserBanner(c *gin.Context, db *sql.DB, matrix *map[int]map[int]int, bann
 		}
 	}
 
-	//todo чекнуть тег
-	if useLastRevision { //db
-		query := `SELECT content, is_active FROM bannermatrix WHERE tag_id = $1 AND feature_id = $2`
+	if useLastRevision {
+		var query string
+		if cfg.AppMode.IsTest {
+			query = `SELECT content, is_active FROM test_bannermatrix WHERE tag_id = $1 AND feature_id = $2`
+		} else {
+			query = `SELECT content, is_active FROM bannermatrix WHERE tag_id = $1 AND feature_id = $2`
+		}
+
 		var contentJSON string
 		var isActive bool
 		err := db.QueryRow(query, tagInt, featureInt).Scan(&contentJSON, &isActive)
@@ -77,8 +82,12 @@ func GetUserBanner(c *gin.Context, db *sql.DB, matrix *map[int]map[int]int, bann
 		}
 
 		c.JSON(http.StatusOK, content)
-	} else { // matrix
-		bannerID := (*matrix)[tagInt][featureInt]
+	} else {
+		bannerID, ok := (*matrix)[tagInt][featureInt]
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Баннер с указанным ID не найден"})
+			return
+		}
 		banner := *((*bannerMap)[bannerID])
 		if !banner.IsActive && userTokenType == "user" {
 			c.JSON(http.StatusOK, gin.H{})
@@ -88,7 +97,54 @@ func GetUserBanner(c *gin.Context, db *sql.DB, matrix *map[int]map[int]int, bann
 	}
 }
 
-// GetAllBanners todo please test
+func fillBannersSlice(tagString, featureString string, tagInt, featureInt int, matrix *map[int]map[int]int,
+	bannerMap *map[int]*structures.Banner, wasPlacedBanner *map[int]struct{}, banners *[]structures.Banner) {
+	if matrix == nil {
+		return
+	}
+
+	switch {
+	case tagString != "" && featureString != "":
+		if tagMap, ok := (*matrix)[tagInt]; ok {
+			if bannerID, ok := tagMap[featureInt]; ok {
+				if _, ok := (*wasPlacedBanner)[bannerID]; !ok {
+					(*wasPlacedBanner)[bannerID] = struct{}{}
+					*banners = append(*banners, *((*bannerMap)[bannerID]))
+				}
+			}
+		}
+	case tagString != "" && featureString == "":
+		if tagMap, ok := (*matrix)[tagInt]; ok {
+			for _, v := range tagMap {
+				if _, ok := (*wasPlacedBanner)[v]; !ok {
+					(*wasPlacedBanner)[v] = struct{}{}
+					*banners = append(*banners, *((*bannerMap)[v]))
+				}
+			}
+		}
+	case tagString == "" && featureString != "":
+		for _, tagValue := range *matrix {
+			for featureKey, bannerID := range tagValue {
+				if featureKey == featureInt {
+					if _, ok := (*wasPlacedBanner)[bannerID]; !ok {
+						(*wasPlacedBanner)[bannerID] = struct{}{}
+						*banners = append(*banners, *((*bannerMap)[bannerID]))
+					}
+				}
+			}
+		}
+	default:
+		for _, tagValue := range *matrix {
+			for _, bannerID := range tagValue {
+				if _, ok := (*wasPlacedBanner)[bannerID]; !ok {
+					(*wasPlacedBanner)[bannerID] = struct{}{}
+					*banners = append(*banners, *((*bannerMap)[bannerID]))
+				}
+			}
+		}
+	}
+}
+
 func GetAllBanners(c *gin.Context, matrix *map[int]map[int]int, bannerMap *map[int]*structures.Banner) {
 	var tagInt, featureInt, limitInt, offsetInt int
 	var err error
@@ -128,41 +184,7 @@ func GetAllBanners(c *gin.Context, matrix *map[int]map[int]int, bannerMap *map[i
 	var wasPlacedBanner = make(map[int]struct{})
 	var banners []structures.Banner
 
-	switch {
-	case tagString != "" && featureString != "":
-		bannerID := (*matrix)[tagInt][featureInt]
-		if _, ok := wasPlacedBanner[bannerID]; !ok {
-			wasPlacedBanner[bannerID] = struct{}{}
-			banners = append(banners, *((*bannerMap)[bannerID]))
-		}
-	case tagString != "" && featureString == "":
-		for _, v := range (*matrix)[tagInt] {
-			if _, ok := wasPlacedBanner[v]; !ok {
-				wasPlacedBanner[v] = struct{}{}
-				banners = append(banners, *((*bannerMap)[v]))
-			}
-		}
-	case tagString == "" && featureString != "":
-		for _, tagValue := range *matrix {
-			for featureKey, bannerID := range tagValue {
-				if featureKey == featureInt {
-					if _, ok := wasPlacedBanner[bannerID]; !ok {
-						wasPlacedBanner[bannerID] = struct{}{}
-						banners = append(banners, *((*bannerMap)[bannerID]))
-					}
-				}
-			}
-		}
-	default:
-		for _, tagValue := range *matrix {
-			for _, bannerID := range tagValue {
-				if _, ok := wasPlacedBanner[bannerID]; !ok {
-					wasPlacedBanner[bannerID] = struct{}{}
-					banners = append(banners, *((*bannerMap)[bannerID]))
-				}
-			}
-		}
-	}
+	fillBannersSlice(tagString, featureString, tagInt, featureInt, matrix, bannerMap, &wasPlacedBanner, &banners)
 
 	if offsetInt >= len(banners) {
 		c.JSON(http.StatusOK, []structures.Banner{})
@@ -222,11 +244,10 @@ func CreateBanner(c *gin.Context, db *sql.DB) {
 	c.JSON(http.StatusCreated, gin.H{"banner_id": bannerID})
 }
 
-// PatchBanner todo UPDATED AT
 func PatchBanner(c *gin.Context, db *sql.DB) {
 	idString := c.Param("id")
 	if idString == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"description": "Нет id в параметрах"})
+		c.JSON(http.StatusBadRequest, gin.H{"description": "Нет ID в параметрах"})
 		return
 	}
 	id, err := strconv.Atoi(idString)
@@ -272,9 +293,9 @@ func PatchBanner(c *gin.Context, db *sql.DB) {
 		counter++
 	}
 	if len(request.Content) > 0 {
-		contentJSON, err := json.Marshal(request.Content)
-		if err != nil {
-			logger.Log.Error(err)
+		contentJSON, er := json.Marshal(request.Content)
+		if er != nil {
+			logger.Log.Error(er)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при кодировании содержимого баннера в JSON"})
 			return
 		}
@@ -294,7 +315,7 @@ func PatchBanner(c *gin.Context, db *sql.DB) {
 		return
 	}
 
-	query = fmt.Sprintf("UPDATE bannermatrix SET %s WHERE banner_id = $%d", strings.Join(columns, ", "), counter)
+	query = fmt.Sprintf("UPDATE bannermatrix SET updated_at = CURRENT_TIMESTAMP, %s WHERE banner_id = $%d", strings.Join(columns, ", "), counter)
 	values = append(values, id)
 
 	_, err = db.Exec(query, values...)
@@ -310,7 +331,7 @@ func PatchBanner(c *gin.Context, db *sql.DB) {
 func DeleteBanner(c *gin.Context, db *sql.DB) {
 	idString := c.Param("id")
 	if idString == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Нет id в параметрах"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Нет ID в параметрах"})
 		return
 	}
 	id, err := strconv.Atoi(idString)
@@ -340,4 +361,8 @@ func DeleteBanner(c *gin.Context, db *sql.DB) {
 	}
 
 	c.JSON(http.StatusNoContent, nil)
+}
+
+func GetBannerVersions(c *gin.Context, db *sql.DB) {
+
 }

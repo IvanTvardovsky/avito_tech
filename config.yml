@@ -1,15 +1,22 @@
 ---
 
+app_mode:
+  test: false
 listen:
   bind_ip: 0.0.0.0
   port: 8080
 storage:
-  host: localhost
+  host: my_db
   port: 5432
   database: avito_tech
-  username: postgres
-  password: bebra123
-authorization: # just example, in deployment use environment
-  key: a-big-secret
-token:
-  expires: 3d
+  username: admin
+  password: root
+test_storage:
+  host: my_db
+  port: 5432
+  database: avito_tech
+  username: admin
+  password: root
+docker_rest_server:
+  host: rest-server
+  port: 8080

@@ -1,0 +1,6 @@
+FROM golang:1.20 AS build
+
+WORKDIR /avito_tech
+COPY . .
+RUN go mod download
+CMD ["go", "test", "-v", "./..."]

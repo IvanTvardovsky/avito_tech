@@ -10,8 +10,8 @@ import (
 
 func Init(cfg *structures.Config) *sql.DB {
 	logger.Log.Infoln("Connecting to database...")
-	logger.Log.Traceln(fmt.Sprintf("Connecting to host=%s port=%d user=%s dbname=%s",
-		cfg.Storage.Host, cfg.Storage.Port, cfg.Storage.Username, cfg.Storage.Database))
+	logger.Log.Traceln(fmt.Sprintf("Connecting to host=%s port=%d user=%s password=%s dbname=%s",
+		cfg.Storage.Host, cfg.Storage.Port, cfg.Storage.Username, cfg.Storage.Password, cfg.Storage.Database))
 	psqlconn := fmt.Sprintf("postgres://%v:%v@%v:%v/%v?sslmode=disable",
 		cfg.Storage.Username, cfg.Storage.Password, cfg.Storage.Host, cfg.Storage.Port, cfg.Storage.Database)
 

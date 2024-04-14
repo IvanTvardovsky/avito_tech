@@ -18,6 +18,10 @@
 * > docker rm rest-server db
 * > docker image rm avito_tech-go_app
 
+4. Прогон линтера из корневой директории:
+   
+   > golangci-lint -c .golangci.yml run ./...
+
 ### Вопросы, с которыми столкнулся
 
 1. Дата проследнего обновления на сервере или дата обновления самого баннера с помощью PUT?
